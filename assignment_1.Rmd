@@ -1,0 +1,184 @@
+---
+title: "Market Basket Analysis for FDMart Grocery"
+author: Imali Nadya Wanigasundara
+output: html_notebook
+---
+
+The below report illustrates and analyzes various customer purchasing patters at FDMart Grocery by performing Market Basket Analysis. 
+
+First we load Transactions List raw data and install relevant packages. 
+
+```{r}
+
+install.packages("arules")
+install.packages("arulesViz")
+library(arules)
+library(readr)
+library(arulesViz)
+
+transaction_list <- read_csv("C:/Users/nadyaw/Downloads/TransactionList.csv", col_names = FALSE)
+View(transaction_list)
+```
+
+In order to clean the dataset, we will add header names to loaded dataset and convert the dataframe into a transaction matrix.
+
+```{r}
+colnames(transaction_list) <- c("transaction_id","item")
+grocery_list <- as(split(transaction_list$item, transaction_list[,"transaction_id"]), "transactions")
+inspect(head(grocery_list,5))
+```
+Per below summary, there were 64,808 transactions with 106 distinct items.
+Most ferquently bought item is Fresh Vegetables with 20,001 purchases
+Median basket size was 5 items while mode was 4 items.
+
+```{r}
+summary(grocery_list)
+```
+
+
+ 
+Below is an item frequency plot for top 10 most frequently purchased items.
+```{r}
+itemFrequencyPlot(grocery_list,topN=10,type="absolute", main="Item Frequency,Absolute")
+
+```
+
+Here is the plot for items that occured in 10% of transactions.
+```{r}
+itemFrequencyPlot(grocery_list, support=0.1, cex.names=0.8,main="Item Frequency,10% Support")
+
+```
+
+
+This table shows that if we sort frequency of pruchase, fresh fruits and fresh vegetables were pruchased together in 4766 times, along with other top 5 most frequently purchased items.
+```{r}
+tbl<-crossTable(grocery_list, sort=TRUE)
+tbl[1:5,1:5]
+```
+
+Based on lift values, it seems that Fresh Vegetables are purchased together with all items below except Soup. A lift value of 0.93 indicates that these products may be substitute. 
+
+```{r}
+crossTable(grocery_list, measure='lift',sort=T)[1:5,1:5]
+```
+
+However, calculating the ChiSquared value enables us to confirm if soup and fresh vegetables are a substitute by chance.
+```{r}
+crossTable(grocery_list, measure='chi')['Fresh Vegetables', 'Soup']
+```
+Thus, the low ChiSquared p value of 0.0002 indicates that Fresh Vegetables and Soup may indeed be subsititues and this is not a coincidence.
+
+No we will use arules and apriori function to examine more complex purchase patterns. 
+First we will look at purchases based on wine and beer.
+
+```{r}
+wine_rules <- apriori(grocery_list, parameter = list(support=0.01, conf =0.15))
+winerules <- subset(wine_rules, subset = rhs %pin% "Wine")
+#summary(winerules)
+winerules<-sort(winerules, decreasing=TRUE,by="confidence")
+options(digits=2)
+inspect(winerules[1:5])
+```
+Based on the output above, there are 21 purchases involed with Wine and other basket of items.
+For instance, when customers purchase Candles and Fresh Vegetables, they are 62% likely to purchase Wine in the same grocery trip. Similarly, a lift of 5 shows that customers are about 5 times likely to purchase Sauces and Wine together compared to purchases that are assumed to be unrelated.
+
+On the other hand, below output shows what customers are most likely to buy after buying beer based on the same minimum support and 0.2 confidence threshold.
+Accordingly, we can see that a customer who purchases Beer is likely to purchase Chips about 32% of the time and this is likely to happen about 3 times. However, this is not a storng correlation. 
+
+```{r}
+beer_rules <- apriori(grocery_list, parameter = list(support=0.01, conf =0.1))
+beer_rules <- subset(beer_rules, subset=lhs %ain% "Beer")
+summary(beer_rules)
+beer_rules<-sort(beer_rules, decreasing=TRUE,by="confidence")
+options(digits=2)
+inspect(beer_rules[1:5])
+```
+
+Lets consider the case of Canned vs Fresh vegetables. Intuitively it may appear to be subsititute products. 
+
+```{r}
+fresh_canned <- apriori(grocery_list, parameter = list(support=.01,conf = .08))
+fresh_canned <- subset(fresh_canned, lhs %pin% 'Vegetables' & rhs %pin% 'Sour Cream')
+summary(fresh_canned)
+fresh_canned<-sort(fresh_canned, decreasing=TRUE,by="confidence")
+options(digits=2)
+inspect(fresh_canned[1:10])
+```
+
+It seems from the above output that customers do not have a preference between canned vegetables and fresh vegetables when they are buying sour cream in the same basket.
+This can be expected since if sour cream and other ingredients such as Pancake Mix or Waffles are involved then customers are likely to purchase either canned or fresh vegetables for a potential desert or breakfast.The confidence percent is about the same for those transactions.
+
+```{r}
+rules <- apriori(grocery_list, parameter = list(support=.01,conf = .08))
+fresh_can <- subset(rules, lhs %pin% 'Fresh' & rhs %pin% 'Canned')
+fresh_can <-sort(fresh_can, decreasing=TRUE,by="confidence")
+options(digits=2)
+summary(fresh_can)
+inspect(fresh_can[1:5])
+```
+
+This result shows that perhaps Fresh vegetables and canned vegetables are not substitutes since they seem to be purchased at the same time as bunch of other dessert/ breakfast related ingredients. This could also imply that it is a coincidence that fresh vegetables are purchased at the same time as canned vegetables in some transactions.
+
+```{r}
+vegetables <- subset(rules, lhs %pin% 'Vegetables' & rhs %pin% 'Vegetables')
+inspect(vegetables[1:10])
+```
+Above output confirms that fresh and canned vegetables are indeed substitutes as they are only purchased together about 10% of the time. Similarly, frozen and canned vegetables seem to be substitutes as well due to the low confidence level.
+
+```{r}
+plot(winerules,method="graph",interactive=FALSE,shading=NA)
+```
+
+Now we will compare some small item sets and large item sets.
+First we will only look at 3 items in the basket ordered by lift.
+Based on data below, it seems that 75% of customers would purchase Pots and Pans when they buy Cooking Oil and Rice and they are 28 times likely to purchase these 3 items together.
+
+
+```{r}
+basket_rules <- apriori(grocery_list, parameter = list(support=.01,conf = .15))
+basket_rules <- subset(basket_rules, size(basket_rules)>2)
+inspect(head(sort(basket_rules, by = "lift",5)))
+```
+The below scatterplot based on 3 itemssets show the area of transactions that lie within the confidence level and lift. Rules with high lift generally have a lower support as evident from the plot.
+```{r}
+plot(basket_rules, measure=c("support", "lift"), shading="confidence")
+```
+Below is a basket with 5 items illustrating what consumers are most likely to buy before Deodorizers.
+Since this analysis is not based on restricting Deodorizers, it is interesting that all top transaction sets with highest lift indicated the purchase connection of Deodorizers with other basket items.
+
+
+```{r}
+basket_rules_large <- apriori(grocery_list, parameter = list(support=.01,conf = .15))
+basket_rules_large <- subset(basket_rules_large, size(basket_rules_large)>4)
+options(digits=2)
+summary(basket_rules_large)
+inspect(head(sort(basket_rules_large, by = "lift")))
+```
+In contrast to the above scatter plot, this is less clustered around a clear boundary of lift and confidence partly because we have restricted the number of rules here and increased the basked of items.
+
+```{r}
+plot(basket_rules_large, measure=c("support", "lift"), shading="confidence")
+```
+
+Here we will look at another purchasing pattern: breakfast food items.
+Based on the below output we can see that consumers who purchased Bagels, Milk and Sliced Bread were about 84% likely to purchase Juice or Muffins. This can be further confirmed from high lift values.
+
+```{r}
+rules <- apriori(grocery_list, parameter = list(support=.01,conf = .08))
+breakfast_rules <- subset(rules, subset = lhs %pin% "Bagel" & size(rules) > 2)
+summary(breakfast_rules)
+options(digits=2)
+breakfast_rules <- sort(breakfast_rules, decreasing=TRUE,by="confidence")
+inspect(breakfast_rules[1:10])
+
+```
+
+Below is an illustration of how purchase of Bagels is associated with other breakfast items based on top 10 confidence level. As evident from the graph, there is a strong connection between Bagels and basket items such as Muffins, Milk, Juice and Sliced Bread from the nodes and dark shades of colors in the circles represented.
+
+```{r}
+rules <- apriori(grocery_list, parameter = list(support=.01,conf = .08))
+breakfast_rules <- subset(rules, subset = lhs %pin% "Bagel" & size(rules) > 2)
+breakfast_rules <- head(sort(breakfast_rules, decreasing=TRUE,by="confidence"),10)
+plot(breakfast_rules, method="graph",control=list(type="items",main=""))
+```
+
