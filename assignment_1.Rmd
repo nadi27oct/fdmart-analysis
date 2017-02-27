@@ -1,6 +1,5 @@
 ---
 title: "Market Basket Analysis for FDMart Grocery"
-author: Imali Nadya Wanigasundara
 output: html_notebook
 ---
 
